@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import ConnectionManager from '../utils/ConnectionManager';
 
 interface Message {
   text: string;
@@ -8,56 +9,75 @@ interface Message {
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState<string>('');
-  const [ws, setWs] = useState<WebSocket | null>(null);
+  const [isDataChannelReady, setIsDataChannelReady] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const connectionManager = useRef<ConnectionManager | null>(null);
 
   useEffect(() => {
-    const socket = new WebSocket('ws://localhost:8080');
-    setWs(socket);
+    connectionManager.current = new ConnectionManager();
+    
+    connectionManager.current.on('message', (message: Message) => {
+      setMessages(prevMessages => [...prevMessages, message]);
+    });
 
-    socket.onmessage = async (event) => {
-      let messageData: string;
-      if (event.data instanceof Blob) {
-        messageData = await event.data.text();
-      } else {
-        messageData = event.data;
-      }
-      const message = JSON.parse(messageData);
-      setMessages((prevMessages) => [...prevMessages, message]);
-    };
+    connectionManager.current.on('dataChannelReady', () => {
+      setIsDataChannelReady(true);
+    });
+
+    connectionManager.current.on('dataChannelClosed', () => {
+      setIsDataChannelReady(false);
+    });
+
+    connectionManager.current.on('error', (errorMessage: string) => {
+      setError(errorMessage);
+    });
+
+    connectionManager.current.init().catch((error) => {
+      console.error('Failed to initialize connection:', error);
+      setError('Failed to connect to the server');
+    });
 
     return () => {
-      socket.close();
+      // Clean up the connection manager if needed
     };
   }, []);
 
-  const sendMessage = () => {
-    if (input.trim() && ws) {
-      const message = { text: input, sender: 'You' };
-      ws.send(JSON.stringify(message));
-      setMessages([...messages, message]);
+  const sendChatMessage = () => {
+    if (input.trim() && isDataChannelReady && connectionManager.current) {
+      connectionManager.current.sendChatMessage(input);
+      setMessages(prevMessages => [...prevMessages, { text: input, sender: 'You' }]);
       setInput('');
+    } else if (!isDataChannelReady) {
+      console.log('Data channel is not ready yet');
+      setMessages(prevMessages => [...prevMessages, { text: 'Connecting...', sender: 'System' }]);
     }
   };
 
   return (
     <div style={{ padding: '20px' }}>
       <h1>Encrypted Chat</h1>
-      <div style={{ border: '1px solid #ccc', padding: '10px', height: '300px', overflowY: 'scroll' }}>
-        {messages.map((msg, index) => (
-          <div key={index} style={{ margin: '10px 0' }}>
-            <strong>{msg.sender}:</strong> {msg.text}
+      {error ? (
+        <div style={{ color: 'red', marginBottom: '10px' }}>{error}</div>
+      ) : (
+        <>
+          <div style={{ border: '1px solid #ccc', padding: '10px', height: '300px', overflowY: 'scroll' }}>
+            {messages.map((msg, index) => (
+              <div key={index} style={{ margin: '10px 0' }}>
+                <strong>{msg.sender}:</strong> {msg.text}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div style={{ marginTop: '10px' }}>
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          style={{ width: '80%', padding: '10px' }}
-        />
-        <button onClick={sendMessage} style={{ padding: '10px' }}>Send</button>
-      </div>
+          <div style={{ marginTop: '10px' }}>
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              style={{ width: '80%', padding: '10px' }}
+            />
+            <button onClick={sendChatMessage} style={{ padding: '10px' }} disabled={!isDataChannelReady}>Send</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
