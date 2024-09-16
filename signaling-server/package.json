@@ -1,0 +1,16 @@
+{
+  "name": "signaling-server",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "ws": "latest"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "@types/ws": "latest",
+    "tsx": "latest"
+  }
+}
